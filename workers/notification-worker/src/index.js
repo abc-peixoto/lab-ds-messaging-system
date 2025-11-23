@@ -1,9 +1,10 @@
 const amqp = require('amqplib');
 
-const RABBITMQ_URL = process.env.RABBITMQ_URL || 'amqp://localhost';
-const EXCHANGE = 'shopping_events';
-const QUEUE = 'list_checkout_log';
-const ROUTING_KEY = 'list.checkout.#';
+const RABBITMQ_URL =
+  process.env.RABBITMQ_URL || "amqp://guest:guest@rabbitmq:5672";
+const EXCHANGE = process.env.EXCHANGE_NAME ||  'shopping_events';
+const QUEUE = process.env.QUEUE_NAME ||'notifications';
+const ROUTING_KEY = process.env.BIND_PATTERN ||'list.checkout.#';
 
 async function start() {
   const connection = await amqp.connect(RABBITMQ_URL);

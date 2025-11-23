@@ -1,0 +1,88 @@
+version: '3.8'
+services:
+  rabbitmq:
+    image: rabbitmq:3-management
+    hostname: rabbit
+    container_name: rabbitmq
+    ports:
+      - '5672:5672'
+      - '15672:15672'
+    environment:
+      RABBITMQ_DEFAULT_USER: ${RABBITMQ_USER:-guest}
+      RABBITMQ_DEFAULT_PASS: ${RABBITMQ_PASS:-guest}
+    networks:
+      - labnet
+    healthcheck:
+      test: ["CMD-SHELL", "rabbitmq-diagnostics -q check_port_listener 5672"]
+      interval: 5s
+      timeout: 5s
+      retries: 12
+      start_period: 5s
+  list-service:
+    build: ./services/list-service
+    expose:
+      - "3000"
+    environment:
+      PORT: 3000
+      RABBITMQ_DEFAULT_USER: ${RABBITMQ_USER:-guest}
+      RABBITMQ_DEFAULT_PASS: ${RABBITMQ_PASS:-guest}
+      RABBITMQ_URL: amqp://${RABBITMQ_USER:-guest}:${RABBITMQ_PASS:-guest}@rabbitmq:5672
+      EXCHANGE_NAME: shopping_events
+    depends_on:
+      rabbitmq:
+        condition: service_healthy
+    networks:
+      - labnet
+  api-gateway:
+    build: ./gateway
+    ports:
+      - "3000:3000"
+    environment:
+      UPSTREAM_SERVICE: list-service
+      UPSTREAM_PORT: 3000
+    depends_on:
+      - list-service
+    networks:
+      - labnet
+  k6:
+    image: grafana/k6:latest
+    volumes:
+      - ./scripts:/scripts
+    command: run /scripts/stress-test.js
+    environment:
+      BASE_URL: http://api-gateway:3000
+    depends_on:
+      - api-gateway
+    networks:
+      - labnet
+  notification-worker:
+    build: ./workers/notification-worker
+    environment:
+      RABBITMQ_DEFAULT_USER: ${RABBITMQ_USER:-guest}
+      RABBITMQ_DEFAULT_PASS: ${RABBITMQ_PASS:-guest}
+      RABBITMQ_URL: amqp://${RABBITMQ_USER:-guest}:${RABBITMQ_PASS:-guest}@rabbitmq:5672
+      EXCHANGE_NAME: shopping_events
+      BIND_PATTERN: list.checkout.#
+      QUEUE_NAME: notifications
+    depends_on:
+      rabbitmq:
+        condition: service_healthy
+    networks:
+      - labnet
+  analytics-worker:
+    build: ./workers/analytics-worker
+    environment:
+      RABBITMQ_DEFAULT_USER: ${RABBITMQ_USER:-guest}
+      RABBITMQ_DEFAULT_PASS: ${RABBITMQ_PASS:-guest}
+      RABBITMQ_URL: amqp://${RABBITMQ_USER:-guest}:${RABBITMQ_PASS:-guest}@rabbitmq:5672
+      EXCHANGE_NAME: shopping_events
+      BIND_PATTERN: list.checkout.#
+      QUEUE_NAME: analytics
+    depends_on:
+      rabbitmq:
+        condition: service_healthy
+    networks:
+      - labnet
+networks:
+  labnet:
+    driver: bridge

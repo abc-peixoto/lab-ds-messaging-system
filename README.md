@@ -1,45 +1,174 @@
-# 🐇 Lab Mensageria - Lista de Compras com RabbitMQ
+# Lab Mensageria — Lista de Compras com RabbitMQ + API Gateway + k6
+
+Este lab demonstra a migração de um fluxo síncrono para eventos assíncronos usando **RabbitMQ**.
+Ao finalizar uma compra (`/lists/:id/checkout`), o **List Service** publica um evento e responde rapidamente com **202 Accepted**, enquanto **consumidores** processam o resto de forma assíncrona.
+
+O lab inclui:
+
+* **RabbitMQ via Docker**
+* **List Service escalável (Producer)**
+* **Consumers escaláveis (Notification + Analytics)**
+* **API Gateway em Node com balanceamento**
+* **Stress test com k6**
+* **Tudo orquestrado por docker-compose**
+
+---
 
 ## Pré-requisitos
-- Node.js 16+
-- RabbitMQ rodando localmente (default: amqp://localhost)
 
-## Instalação
-```bash
-npm install
-```
+* Docker + Docker Compose
+* Node.js 16+ (somente se rodar sem Docker)
+
+---
 
 ## Estrutura do Projeto
-- `producer-list-service/`: API Express (`POST /lists/:id/checkout`) que publica eventos.
-- `consumer-log/`: Worker para logs/"notificações"
-- `consumer-analytics/`: Worker para "analytics"
 
-## Como executar
+```
+lab-ds-messaging-system/
+├─ docker-compose.yml
+├─ .env
+├─ gateway/
+│  ├─ src/index.js
+│  ├─ package.json
+│  └─ Dockerfile
+├─ services/
+│  └─ list-service/
+│     ├─ src/index.js
+│     ├─ package.json
+│     └─ Dockerfile
+├─ workers/
+│  ├─ notification-worker/
+│  │  ├─ src/index.js
+│  │  ├─ package.json
+│  │  └─ Dockerfile
+│  └─ analytics-worker/
+│     ├─ src/index.js
+│     ├─ package.json
+│     └─ Dockerfile
+└─ scripts/
+   └─ stress-test.js
+```
 
-1. **Subir o RabbitMQ:**
-   - Docker exemplo:
-   ```bash
-   docker run -d --hostname rabbit --name lab-rabbitmq -p 5672:5672 -p 15672:15672 rabbitmq:3-management
-   # Interface web: http://localhost:15672 login: guest/guest
-   ```
+---
 
-2. **Iniciar serviços** (em terminais separados):
-   ```bash
-   npm run start:producer
-   npm run start:consumer-log
-   npm run start:consumer-analytics
-   ```
+## Variáveis de ambiente
 
-3. **Testar requisição:**
-   ```bash
-   curl -X POST http://localhost:3000/lists/123/checkout \
-   -H 'Content-Type: application/json' \
-   -d '{"email": "aluno@puc.edu", "total": 199.90}'
-   ```
-   - O producer responderá rapidamente (202).
-   - Veja os logs nos consumidores.
-   - Veja as mensagens na interface do RabbitMQ.
+Crie um arquivo `.env` na raiz:
 
-## Observação
+```env
+RABBITMQ_USER=guest
+RABBITMQ_PASS=guest
+```
 
-- Altere `RABBITMQ_URL` nas variáveis de ambiente caso rode fora do localhost.
+Essas variáveis são usadas pelo compose para:
+
+* criar o usuário/senha no broker;
+* montar `RABBITMQ_URL` automaticamente nos serviços.
+
+---
+
+## Como executar (com Docker Compose)
+
+### 1) Subir stack completa
+
+```bash
+docker compose up --build
+```
+
+Isso sobe:
+
+* RabbitMQ (broker + management UI)
+* list-service (producer interno)
+* notification-worker
+* analytics-worker
+* api-gateway (porta pública)
+
+### 2) Acessar RabbitMQ Management
+
+* URL: `http://localhost:15672`
+* Login: `guest / guest`
+
+---
+
+## API Gateway (porta pública)
+
+O **único serviço acessível via host** é o gateway.
+
+* Host → Gateway (porta 3000)
+* Gateway → balanceia para réplicas internas do `list-service`
+
+Porta pública:
+
+```
+http://localhost:3000
+```
+
+---
+
+## Testar requisição manualmente
+
+```bash
+curl -i -X POST http://localhost:3000/lists/123/checkout \
+  -H 'Content-Type: application/json' \
+  -d '{"email": "aluno@puc.edu", "total": 199.90}'
+```
+
+### Resultado esperado
+
+* Resposta rápida com **202 Accepted**
+* Log no producer (evento publicado)
+* Logs nos dois consumidores (processamento assíncrono)
+* Gráficos no RabbitMQ subindo/descendo
+
+---
+
+## Rodar com múltiplas instâncias
+
+Exemplo:
+
+```bash
+docker compose up --build \
+  --scale list-service=3 \
+  --scale notification-worker=2 \
+  --scale analytics-worker=2
+```
+
+> O gateway descobre os IPs dos produtores via DNS do Docker e distribui as requisições em round-robin.
+
+---
+
+## Stress test com k6
+
+### 1) Script
+
+O script fica em:
+
+```
+scripts/stress-test.js
+```
+
+Ele faz ramp-up de VUs e valida:
+
+* status 202
+* presença do header `X-Transaction-Id`
+
+### 2) Executar stress junto com a stack
+
+```bash
+docker compose up --build \
+  --scale list-service=3 \
+  --scale notification-worker=2 \
+  --scale analytics-worker=2 \
+  k6
+```
+
+Você verá no terminal do k6:
+
+* req/s
+* p95 latency
+* taxa de erro
+
+E no RabbitMQ Management:
+
+* pico de mensagens entrando/saindo
+* múltiplos consumers competindo na fila

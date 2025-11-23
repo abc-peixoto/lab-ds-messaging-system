@@ -2,17 +2,11 @@
   "name": "lab-ds-messaging-system",
   "version": "1.0.0",
   "description": "Sistema de microsserviços com mensageria RabbitMQ - Lab SD",
-  "main": "index.js",
-  "scripts": {
-    "start:producer": "node producer-list-service/index.js",
-    "start:consumer-log": "node consumer-log/index.js",
-    "start:consumer-analytics": "node consumer-analytics/index.js"
-  },
-  "dependencies": {
-    "amqplib": "^0.10.4",
-    "express": "^4.18.2"
-  },
-  "devDependencies": {
-    "nodemon": "^3.0.1"
-  }
+  "private": true,
+  "workspaces": [
+    "services/*",
+    "workers/*",
+    "gateway/*",
+    "scripts/*"
+  ]
 }

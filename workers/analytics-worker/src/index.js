@@ -1,9 +1,11 @@
 const amqp = require('amqplib');
 
-const RABBITMQ_URL = process.env.RABBITMQ_URL || 'amqp://localhost';
-const EXCHANGE = 'shopping_events';
-const QUEUE = 'list_checkout_analytics';
-const ROUTING_KEY = 'list.checkout.#';
+const RABBITMQ_URL =
+  process.env.RABBITMQ_URL || "amqp://guest:guest@rabbitmq:5672";
+const EXCHANGE = process.env.EXCHANGE_NAME ||  'shopping_events';
+const QUEUE = process.env.QUEUE_NAME ||'analytics';
+const ROUTING_KEY = process.env.BIND_PATTERN ||'list.checkout.#';
+
 
 async function start() {
   const connection = await amqp.connect(RABBITMQ_URL);
@@ -15,7 +17,6 @@ async function start() {
   channel.consume(QUEUE, (msg) => {
     if (msg !== null) {
       const content = JSON.parse(msg.content.toString());
-      // Simulate analytics update
       console.log(`[Analytics] Lista ${content.listId}: usuário ${content.userEmail}, total gasto: R$${content.totalAmount}`);
       channel.ack(msg);
     }
